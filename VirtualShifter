@@ -1,12 +1,248 @@
 VirtualShifter/
  ├─ settings.gradle
+rootProject.name = "VirtualShifter"
+include ':app'
  ├─ build.gradle
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:8.0.2"
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:1.8.21"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
  ├─ app/
  │   ├─ build.gradle
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.example.virtualshifter'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId "com.example.virtualshifter"
+        minSdk 26
+        targetSdk 33
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+}
+
+dependencies {
+    implementation "androidx.appcompat:appcompat:1.6.1"
+    implementation "com.google.android.material:material:1.9.0"
+}
+
  │   ├─ proguard-rules.pro
+// Not needed for now
+
  │   └─ src/main/
  │       ├─ AndroidManifest.xml
+app/src/main/AndroidManifest.xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
+    <application
+        android:label="Virtual Shifter"
+        android:allowBackup="true"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>
+
  │       ├─ java/com/example/virtualshifter/MainActivity.kt
+app/src/main/java/com/example/virtualshifter/MainActivity.kt
+package com.example.virtualshifter
+
+import android.Manifest
+import android.bluetooth.*
+import android.bluetooth.le.*
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.util.Log
+import android.widget.Button
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var bluetoothAdapter: BluetoothAdapter
+    private var bluetoothGatt: BluetoothGatt? = null
+
+    private val FTMS_SERVICE_UUID =
+        java.util.UUID.fromString("00001826-0000-1000-8000-00805f9b34fb")
+
+    private val FTMS_CONTROL_UUID =
+        java.util.UUID.fromString("00002ad9-0000-1000-8000-00805f9b34fb")
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+
+        val btnPlus: Button = findViewById(R.id.btnPlus)
+        val btnMinus: Button = findViewById(R.id.btnMinus)
+        val btnConnect: Button = findViewById(R.id.btnConnect)
+
+        btnConnect.setOnClickListener { scanForKickr() }
+
+        btnPlus.setOnClickListener { sendGearCommand(0x05) }
+        btnMinus.setOnClickListener { sendGearCommand(0x06) }
+    }
+
+    private fun scanForKickr() {
+        val scanner = bluetoothAdapter.bluetoothLeScanner
+
+        val filter = ScanFilter.Builder()
+            .setDeviceName("KICKR")
+            .build()
+
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
+        scanner.startScan(listOf(filter), settings, scanCallback)
+    }
+
+    private val scanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult?) {
+            result?.device?.let { device ->
+                Log.d("BLE", "Found: ${device.name}")
+                bluetoothAdapter.bluetoothLeScanner.stopScan(this)
+                connectToDevice(device)
+            }
+        }
+    }
+
+    private fun connectToDevice(device: BluetoothDevice) {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        bluetoothGatt = device.connectGatt(this, false, gattCallback)
+    }
+
+    private val gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                Log.d("BLE", "Connected to KICKR")
+                gatt.discoverServices()
+            }
+        }
+    }
+
+    private fun sendGearCommand(command: Int) {
+        val service = bluetoothGatt?.getService(FTMS_SERVICE_UUID)
+        val control = service?.getCharacteristic(FTMS_CONTROL_UUID)
+
+        if (control != null) {
+            control.value = byteArrayOf(0x00, command.toByte())
+            bluetoothGatt?.writeCharacteristic(control)
+            Log.d("BLE", "Sent command: $command")
+        } else {
+            Log.e("BLE", "FTMS Control characteristic not found")
+        }
+    }
+}
+
  │       └─ res/layout/activity_main.xml
+app/src/main/res/layout/activity_main.xml
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <Button
+        android:id="@+id/btnConnect"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Connect KICKR" />
+
+    <Button
+        android:id="@+id/btnPlus"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Gear +"
+        android:layout_marginTop="40dp"/>
+
+    <Button
+        android:id="@+id/btnMinus"
+        android:layout_width="240dp"
+        android:layout_height="wrap_content"
+        android:text="Gear -"
+        android:layout_marginTop="20dp"/>
+</LinearLayout>
+
  ├─ .github/workflows/
- │   └─ android.yml
+ │   └─ android.yml.github/workflows/android.yml
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Build debug APK
+      run: ./gradlew assembleDebug
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: VirtualShifter-APK
+        path: app/build/outputs/apk/debug/app-debug.apk
+
