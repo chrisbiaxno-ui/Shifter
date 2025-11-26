@@ -1,0 +1,12 @@
+VirtualShifter/
+ ├─ settings.gradle
+ ├─ build.gradle
+ ├─ app/
+ │   ├─ build.gradle
+ │   ├─ proguard-rules.pro
+ │   └─ src/main/
+ │       ├─ AndroidManifest.xml
+ │       ├─ java/com/example/virtualshifter/MainActivity.kt
+ │       └─ res/layout/activity_main.xml
+ ├─ .github/workflows/
+ │   └─ android.yml
